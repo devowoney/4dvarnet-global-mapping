@@ -1,0 +1,21 @@
+vars:
+- config.yaml:domain,paths
+
+stages:
+  inference:
+    cmd: >
+      python inferring.py
+      +input=${method.input_data}
+      +checkpoint_path=${method.checkpoint}
+      +config_path=${method.config}
+      +output_path=${paths.output}/${method.name}.nc
+      +patch=${dims.patch} +stride=${dims.stride}
+      +period_from=${domain.time.0}
+      +period_to=${domain.time.1}
+      +input_var=${method.input_var}
+      +output_var=${method.output_var}
+      +output_geo_uv=${method.geo_uv}
+      +output_dc_format=true
+      +batch_size=1
+      hydra.run.dir=. hydra.output_subdir=null hydra/job_logging=disabled
+      hydra/hydra_logging=disabled

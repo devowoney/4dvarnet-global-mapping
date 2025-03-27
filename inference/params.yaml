@@ -1,0 +1,17 @@
+method:
+  # -------------------------------------------------------------------
+  # SLA
+  # -------------------------------------------------------------------
+  name: fdvarnet-glo12-sla
+  checkpoint: <chemin_vers_checkpoints>
+  config: ../config/xp/inference-glo12-sla.yaml
+
+  input_data: data/global_sla_0.25.nc
+  input_var: sla_filtered
+  output_var: sla
+  geo_uv: false
+
+dims:
+  patch: 15-648-1488
+  stride: 1-200-200
+  res: .25
