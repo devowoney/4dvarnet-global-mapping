@@ -13,7 +13,7 @@ conda install -c conda-forge mamba
 conda create -n 4dvarnet-gm
 conda activate 4dvarnet-gm
 mamba env update -f environment.yaml
-pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ ocean4dvarnet==0.0.13
+pip install ocean4dvarnet
 ```
 
 ### Download example data
@@ -32,7 +32,6 @@ python main.py xp=glo12-sla
 ```
 cd inference
 edit the checkpoint path of params.yaml with your checkpoint
-download the inference data #TODO
 dvc repro
 ```
 
