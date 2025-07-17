@@ -1,0 +1,4 @@
+*.log
+config/__pycache__/
+contrib/*/__pycache__/
+outputs/

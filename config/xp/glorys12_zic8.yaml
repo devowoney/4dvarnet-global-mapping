@@ -1,0 +1,118 @@
+# @package _global_
+
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${xpname}-${now:%H-%M-%S}
+  callbacks:
+    LogJobReturnCallback:
+      _target_: hydra.experimental.callbacks.LogJobReturnCallback
+
+domain: ???
+ckpt: null
+xpname: glorys12_zic8
+
+trainer:
+  _target_: pytorch_lightning.Trainer
+  inference_mode: false
+  deterministic: true
+  gradient_clip_val: 0.5
+  accelerator: gpu
+  devices: 1
+  logger:
+    _target_: pytorch_lightning.loggers.tensorboard.TensorBoardLogger
+    save_dir: ${hydra:runtime.output_dir}
+    name: ${hydra:runtime.choices.xp}
+    version: ''
+  max_epochs: 350
+  limit_train_batches: 1000
+  check_val_every_n_epoch: 5
+  callbacks:
+    - _target_: pytorch_lightning.callbacks.LearningRateMonitor
+    - _target_: pytorch_lightning.callbacks.ModelCheckpoint
+      monitor: val_mse
+      save_last: true
+      save_top_k: 3
+      filename: '{val_mse:.5f}-{epoch:03d}'
+
+datamodule:
+  _target_: contrib.glorys12_zic8.DistinctNormDataModule
+  input_da:
+    _target_: contrib.glorys12_zic8.load_glorys12_data_on_fly_inp
+    tgt_path: /SCRATCH/j25lee/glorys12_2014_daily_sla_8th.nc
+    tgt_var: sla
+    inp_path: /SCRATCH/j25lee/mask_6nadirs_8th.nc
+    inp_var: inp
+  domains:
+    train:
+      time: {_target_: builtins.slice, _args_: ['2014-01-01', '2014-10-30']}
+    val:
+      time: {_target_: builtins.slice, _args_: ['2014-11-11', '2014-12-31']}
+    test: null
+  xrds_kw:
+    train:
+      patch_dims: {time: 15, lat: 96, lon: 96}
+      strides: {time: 1, lat: 80, lon: 80}
+      domain_limits: ${domain.train}
+      noise: .03
+    val:
+      patch_dims: {time: 15, lat: 96, lon: 96}
+      strides: {time: 1, lat: 80, lon: 80}
+      domain_limits: ${domain.train}
+      noise: .03
+  dl_kw: {batch_size: 64, num_workers: 4}
+  norm_stats:  # norm values from tgt
+    train:
+    - -0
+    - 0.078
+    val:
+    - 0.008
+    - 0.081
+
+model:
+  _target_: contrib.glorys12_zic8.Lit4dVarNetIgnoreNaN
+  persist_rw: false
+  opt_fn:
+    _target_: ocean4dvarnet.utils.cosanneal_lr_adam
+    _partial_: true
+    lr: 3e-4
+    T_max: ${trainer.max_epochs}
+  rec_weight:
+    _target_: ocean4dvarnet.utils.get_triang_time_wei
+    patch_dims: ${datamodule.xrds_kw.train.patch_dims}
+    crop: {time: 0, lat: 4, lon: 4}
+  val_rec_weight:
+    _target_: ocean4dvarnet.utils.get_triang_time_wei
+    patch_dims: ${datamodule.xrds_kw.val.patch_dims}
+    crop: {time: 0, lat: 4, lon: 4}
+  solver:
+    _target_: contrib.glorys12_zic8.GradsolverZeroContitionInitial
+    n_step: 10
+    lr_grad: 1e3
+    # lr_grad: 0.2
+    prior_cost:
+      _target_: ocean4dvarnet.models.BilinAEPriorCost
+      dim_in: ${datamodule.xrds_kw.train.patch_dims.time}
+      dim_hidden: 64
+      bilin_quad: false
+      # bilin_quad: true
+      downsamp: null
+    obs_cost:
+      _target_: ocean4dvarnet.models.BaseObsCost
+    grad_mod:
+      _target_: ocean4dvarnet.models.ConvLstmGradModel
+      dim_in: ${datamodule.xrds_kw.train.patch_dims.time}
+      dim_hidden: 96
+  norm_stats: ${datamodule.norm_stats}
+
+entrypoints:
+  - _target_: pytorch_lightning.seed_everything
+    seed: 333
+  - _target_: contrib.glorys12_zic8.train
+    trainer: ${trainer}
+    lit_mod: ${model}
+    dm: ${datamodule}
+    ckpt: ${ckpt}
+
+defaults:
+  - /domain: glorys
+  - _self_
