@@ -9,7 +9,7 @@ hydra:
 
 domain: ???
 ckpt: null
-xpname: glorys12_zic8
+xpname: zic8_altival
 
 trainer:
   _target_: pytorch_lightning.Trainer
@@ -35,18 +35,19 @@ trainer:
       filename: '{val_mse:.5f}-{epoch:03d}'
 
 datamodule:
-  _target_: contrib.glorys12_zic8.DistinctNormDataModule
+  _target_: contrib.zic8_altival.DistinctNormDataModule
   input_da:
-    _target_: contrib.glorys12_zic8.load_glorys12_data_on_fly_inp
+    _target_: contrib.zic8_altival.load_glorys12_data_on_fly_inp
     tgt_path: /SCRATCH/j25lee/glorys12_2014_daily_sla_8th.nc
     tgt_var: sla
     inp_path: /SCRATCH/j25lee/mask_6nadirs_8th.nc
     inp_var: inp
+    val_path: /SCRATCH/j25lee/validation-filtered-2021-0.25deg.nc
   domains:
     train:
-      time: {_target_: builtins.slice, _args_: ['2014-01-01', '2014-10-30']}
+      time: {_target_: builtins.slice, _args_: ['2014-01-01', '2014-12-31']}
     val:
-      time: {_target_: builtins.slice, _args_: ['2014-11-01', '2014-12-31']}
+      time: {_target_: builtins.slice, _args_: ['2021-01-01', '2021-12-31']}
     test: null
   xrds_kw:
     train:
@@ -55,26 +56,26 @@ datamodule:
       domain_limits: ${domain.train}
       noise: .03
     val:
-      patch_dims: {time: 15, lat: 680, lon: 1440}
-      strides: {time: 1, lat: 1, lon: 1}
+      patch_dims: {time: 15, lat: 96, lon: 96}
+      strides: {time: 1, lat: 80, lon: 80}
       domain_limits: ${domain.train}
-      noise: .03
-  dl_kw: {batch_size: 64, num_workers: 1}
+      noise: null
+  dl_kw: {batch_size: 64, num_workers: 4}
   norm_stats:  # norm values from tgt
     train:
     - -0.1571
     - 0.721
     val:
-    - -0.1486
-    - 0.7192
+    - 0.08624135039425909
+    - 0.10271981565166008
 
 model:
-  _target_: contrib.glorys12_zic8.Lit4dVarNetIgnoreNaN
+  _target_: contrib.zic8_altival.Lit4dVarNetIgnoreNaN
   persist_rw: false
   opt_fn:
     _target_: ocean4dvarnet.utils.cosanneal_lr_adam
     _partial_: true
-    lr: 1e-4
+    lr: 3e-4
     T_max: ${trainer.max_epochs}
   rec_weight:
     _target_: ocean4dvarnet.utils.get_triang_time_wei
@@ -85,7 +86,7 @@ model:
     patch_dims: ${datamodule.xrds_kw.val.patch_dims}
     crop: {time: 0, lat: 4, lon: 4}
   solver:
-    _target_: contrib.glorys12_zic8.GradsolverZeroContitionInitial
+    _target_: contrib.zic8_altival.GradsolverZeroContitionInitial
     n_step: 10
     lr_grad: 1e-3
     # lr_grad: 0.2
@@ -107,7 +108,7 @@ model:
 entrypoints:
   - _target_: pytorch_lightning.seed_everything
     seed: 333
-  - _target_: contrib.glorys12_zic8.train
+  - _target_: contrib.zic8_altival.train
     trainer: ${trainer}
     lit_mod: ${model}
     dm: ${datamodule}

@@ -29,8 +29,9 @@ class DistinctNormDataModule(BaseDataModule):
 
         self.input_mask = None
         if isinstance(self.input_da, (tuple, list)):
-            self.input_da, self.input_mask = self.input_da[0], self.input_da[1]
-
+            # self.input_da, self.input_mask = self.input_da[0], self.input_da[1]
+            self.input_da, self.input_mask, self.val_data = self.input_da
+            
     def norm_stats(self):
         if self._norm_stats is None:
             raise NormParamsNotProvided()
@@ -51,11 +52,24 @@ class DistinctNormDataModule(BaseDataModule):
             **self.xrds_kw['train'], postpro_fn=self.post_fn('train'),
             mask=self.input_mask,
         )
-        self.val_ds = LazyXrDataset(
-            self.input_da.sel(self.domains['val']),
-            **self.xrds_kw['val'], postpro_fn=self.post_fn('val'),
-            mask=self.input_mask,
-        )
+        # self.val_ds = LazyXrDataset(
+        #     self.input_da.sel(self.domains['val']),
+        #     **self.xrds_kw['val'], postpro_fn=self.post_fn('val'),
+        #     mask=self.input_mask,
+        # )
+        
+        if self.val_data is not None:
+            self.val_ds = LazyXrDataset(
+                self.val_data.sel(self.domains['val']),
+                **self.xrds_kw['val'],
+                postpro_fn=self.post_fn('val'),
+            )
+        else:
+            self.val_ds = LazyXrDataset(
+                self.input_da.sel(self.domains['val']),
+                **self.xrds_kw['val'], postpro_fn=self.post_fn('val'),
+                mask=self.input_mask,
+            )
 
     def val_dataloader(self):
         return torch.utils.data.DataLoader(
@@ -280,7 +294,8 @@ def load_glorys12_data(tgt_path, inp_path, tgt_var='zos', inp_var='input'):
     return ds
 
 def load_glorys12_data_on_fly_inp(
-    tgt_path, inp_path, tgt_var='zos', inp_var='input',
+    # tgt_path, inp_path, tgt_var='zos', inp_var='input',
+    tgt_path, inp_path, tgt_var='zos', inp_var='input', val_path=None,
 ):
     isel = None  # dict(time=slice(-365 * 2, None))
 
@@ -294,8 +309,20 @@ def load_glorys12_data_on_fly_inp(
         .isel(isel)
         .rename(latitude='lat', longitude='lon')
     )
+    val = None
+    if val_path:
+        val = (
+            xr.open_dataset(val_path)
+            .rename(
+                obs='input', ref='tgt', latitude='lat', longitude='lon',
+            )
+            .to_array()
+            .sortby('variable')
+        )
 
-    return tgt, inp
+    return tgt, inp, val
+
+    # return tgt, inp
 
 def train(trainer, dm, lit_mod, ckpt=None):
     if trainer.logger is not None:
