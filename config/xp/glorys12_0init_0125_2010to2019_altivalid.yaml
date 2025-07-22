@@ -9,7 +9,7 @@ hydra:
 
 domain: ???
 ckpt: null
-xpname: zic8_altival
+xpname: glorys12_0init_0125_2010to2019_altivalid
 
 trainer:
   _target_: pytorch_lightning.Trainer
@@ -35,47 +35,47 @@ trainer:
       filename: '{val_mse:.5f}-{epoch:03d}'
 
 datamodule:
-  _target_: contrib.zic8_altival.DistinctNormDataModule
+  _target_: contrib.altivali_025.DistinctNormDataModule
   input_da:
-    _target_: contrib.zic8_altival.load_glorys12_data_on_fly_inp
-    tgt_path: /SCRATCH/j25lee/glorys12_2014_daily_sla_8th.nc
+    _target_: contrib.altivali_025.load_glorys12_data_on_fly_inp
+    tgt_path: /Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_8th_double.nc
     tgt_var: sla
-    inp_path: /SCRATCH/j25lee/mask_6nadirs_8th.nc
+    inp_path: /Odyssey/public/data_challenge_ssh_ose/data/alongtrack/mask_6nadirs_8th.nc
     inp_var: inp
-    val_path: /SCRATCH/j25lee/validation-filtered-2021-0.25deg.nc
+    val_path: /Odyssey/public/altimetry_traces/2010_2023/gridded/validation-filtered-2021-0.25deg.nc
   domains:
     train:
-      time: {_target_: builtins.slice, _args_: ['2014-01-01', '2014-12-31']}
+      time: {_target_: builtins.slice, _args_: ['2010-01-01', '2019-12-31']}
     val:
       time: {_target_: builtins.slice, _args_: ['2021-01-01', '2021-12-31']}
     test: null
   xrds_kw:
     train:
-      patch_dims: {time: 15, lat: 96, lon: 96}
-      strides: {time: 1, lat: 80, lon: 80}
+      patch_dims: {time: 15, lat: 232, lon: 366}
+      strides: {time: 1, lat: 224, lon: 358}
       domain_limits: ${domain.train}
       noise: .03
     val:
-      patch_dims: {time: 15, lat: 96, lon: 96}
-      strides: {time: 1, lat: 80, lon: 80}
+      patch_dims: {time: 15, lat: 232, lon: 366}
+      strides: {time: 1, lat: 224, lon: 358}
       domain_limits: ${domain.train}
       noise: null
   dl_kw: {batch_size: 64, num_workers: 4}
   norm_stats:  # norm values from tgt
     train:
-    - -0.1571
-    - 0.721
+    - 3.562e-07
+    - 0.04391
     val:
     - 0.08624135039425909
     - 0.10271981565166008
 
 model:
-  _target_: contrib.zic8_altival.Lit4dVarNetIgnoreNaN
+  _target_: contrib.altivali_025.Lit4dVarNetIgnoreNaN
   persist_rw: false
   opt_fn:
     _target_: ocean4dvarnet.utils.cosanneal_lr_adam
     _partial_: true
-    lr: 3e-4
+    lr: 1e-3
     T_max: ${trainer.max_epochs}
   rec_weight:
     _target_: ocean4dvarnet.utils.get_triang_time_wei
@@ -86,9 +86,9 @@ model:
     patch_dims: ${datamodule.xrds_kw.val.patch_dims}
     crop: {time: 0, lat: 4, lon: 4}
   solver:
-    _target_: contrib.zic8_altival.GradsolverZeroContitionInitial
+    _target_: contrib.altivali_025.GradsolverZeroContitionInitial
     n_step: 10
-    lr_grad: 1e-3
+    lr_grad: 5e-2
     # lr_grad: 0.2
     prior_cost:
       _target_: ocean4dvarnet.models.BilinAEPriorCost
@@ -108,7 +108,7 @@ model:
 entrypoints:
   - _target_: pytorch_lightning.seed_everything
     seed: 333
-  - _target_: contrib.zic8_altival.train
+  - _target_: contrib.altivali_025.train
     trainer: ${trainer}
     lit_mod: ${model}
     dm: ${datamodule}

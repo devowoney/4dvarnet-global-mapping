@@ -252,7 +252,15 @@ class GradsolverZeroContitionInitial(GradSolver) :
         if x_init is not None:
             return x_init
 
-        return torch.zeros_like(batch.input).detach().requires_grad_(True)
+        init = batch.input.nan_to_num().zero_().detach().requires_grad_(True)
+        
+        if torch.isnan(init).any() :
+            print("INput has a Nan !!!!!!!!!!!!")
+            print("INput has a Nan !!!!!!!!!!!!")
+            print("INput has a Nan !!!!!!!!!!!!")
+        
+            
+        return init 
 
 # Utils
 # -----
