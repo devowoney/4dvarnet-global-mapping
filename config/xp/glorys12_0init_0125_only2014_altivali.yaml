@@ -24,7 +24,7 @@ trainer:
     name: ${hydra:runtime.choices.xp}
     version: ''
   max_epochs: 350
-  limit_train_batches: 1000
+  limit_train_batches: 500
   check_val_every_n_epoch: 5
   callbacks:
     - _target_: pytorch_lightning.callbacks.LearningRateMonitor
@@ -75,7 +75,7 @@ model:
   opt_fn:
     _target_: ocean4dvarnet.utils.cosanneal_lr_adam
     _partial_: true
-    lr: 3e-4
+    lr: 1e-4
     T_max: ${trainer.max_epochs}
   rec_weight:
     _target_: ocean4dvarnet.utils.get_triang_time_wei
@@ -86,7 +86,7 @@ model:
     patch_dims: ${datamodule.xrds_kw.val.patch_dims}
     crop: {time: 0, lat: 4, lon: 4}
   solver:
-    _target_: contrib.altivali_025.GradsolverZeroContitionInitial
+    _target_: contrib.altivali_025.GradSolverZeroInitialCondition
     n_step: 10
     lr_grad: 1e-1
     # lr_grad: 0.2

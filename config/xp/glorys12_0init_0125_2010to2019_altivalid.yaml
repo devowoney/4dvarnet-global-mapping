@@ -24,7 +24,7 @@ trainer:
     name: ${hydra:runtime.choices.xp}
     version: ''
   max_epochs: 350
-  limit_train_batches: 1000
+  limit_train_batches: 100
   check_val_every_n_epoch: 5
   callbacks:
     - _target_: pytorch_lightning.callbacks.LearningRateMonitor
@@ -38,11 +38,14 @@ datamodule:
   _target_: contrib.altivali_025.DistinctNormDataModule
   input_da:
     _target_: contrib.altivali_025.load_glorys12_data_on_fly_inp
-    tgt_path: /Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_8th_double.nc
+    # tgt_path: /Odyssey/public/glorys/reanalysis/glorys12_2010_2019_daily_sla_8th_double.nc
+    tgt_path: /SCRATCH/j25lee/glorys12_2010_2019_daily_sla_8th_double.nc
     tgt_var: sla
-    inp_path: /Odyssey/public/data_challenge_ssh_ose/data/alongtrack/mask_6nadirs_8th.nc
+    # inp_path: /Odyssey/public/data_challenge_ssh_ose/data/alongtrack/mask_6nadirs_8th.nc
+    inp_path: /SCRATCH/j25lee/mask_6nadirs_8th.nc
     inp_var: inp
-    val_path: /Odyssey/public/altimetry_traces/2010_2023/gridded/validation-filtered-2021-0.25deg.nc
+    # val_path: /Odyssey/public/altimetry_traces/2010_2023/gridded/validation-filtered-2021-0.25deg.nc
+    val_path: /SCRATCH/j25lee/validation-filtered-2021-0.25deg.nc
   domains:
     train:
       time: {_target_: builtins.slice, _args_: ['2010-01-01', '2019-12-31']}
@@ -51,13 +54,13 @@ datamodule:
     test: null
   xrds_kw:
     train:
-      patch_dims: {time: 15, lat: 232, lon: 366}
-      strides: {time: 1, lat: 224, lon: 358}
+      patch_dims: {time: 15, lat: 96, lon: 96}
+      strides: {time: 1, lat: 80, lon: 80}
       domain_limits: ${domain.train}
       noise: .03
     val:
-      patch_dims: {time: 15, lat: 232, lon: 366}
-      strides: {time: 1, lat: 224, lon: 358}
+      patch_dims: {time: 15, lat: 96, lon: 96}
+      strides: {time: 1, lat: 80, lon: 80}
       domain_limits: ${domain.train}
       noise: null
   dl_kw: {batch_size: 64, num_workers: 4}
