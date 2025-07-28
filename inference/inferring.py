@@ -138,7 +138,7 @@ class LitModel(pl.LightningModule):
             final_reconstruction = final_reconstruction.sortby("longitude")
 
             mdt = (
-                xr.open_dataset("data/MDT_DUACS_0.25deg.nc")
+                xr.open_dataset("/Odyssey/public/duacs/2019/from-datachallenge-global-ose-2023/MDT_DUACS_0.25deg.nc")
                 .sel(
                     latitude=slice(
                         final_reconstruction.latitude[0],

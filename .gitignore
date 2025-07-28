@@ -3,3 +3,6 @@ config/__pycache__/
 contrib/*/__pycache__/
 contrib/__pycache__
 outputs/
+sb*.sh
+inference/output
+inference/sb*.sh

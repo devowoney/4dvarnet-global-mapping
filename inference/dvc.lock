@@ -1,0 +1,10 @@
+schema: '2.0'
+stages:
+  inference:
+    cmd: "python inferring.py +input=/Odyssey/public/data_challenge_ssh_ose/data/alongtrack/gridded_obs_sla_0.125.nc
+      +checkpoint_path=/Odyssey/private/j25lee/4dvarnet-global-mapping/outputs/2025-07-22/glorys12_0init_0125_only2014-23-48-42/glorys12_0init_0125_only2014/checkpoints/best.ckpt
+      +config_path=../config/xp/inference-glo12-sla.yaml +output_path=./output//fdvarnet-glo12-sla.nc
+      +patch=15-656-608 +stride=1-640-592 +period_from=2018-12-01 +period_to=2020-01-31
+      +input_var=sla_filtered +output_var=sla +output_geo_uv=false +output_dc_format=true
+      +batch_size=1 hydra.run.dir=. hydra.output_subdir=null hydra/job_logging=disabled
+      hydra/hydra_logging=disabled\n"

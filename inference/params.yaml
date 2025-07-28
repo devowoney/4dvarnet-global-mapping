@@ -3,15 +3,20 @@ method:
   # SLA
   # -------------------------------------------------------------------
   name: fdvarnet-glo12-sla
-  checkpoint: <chemin_vers_checkpoints>
+  checkpoint: /Odyssey/private/j25lee/4dvarnet-global-mapping/outputs/2025-07-22/glorys12_0init_0125_only2014-23-48-42/glorys12_0init_0125_only2014/checkpoints/best.ckpt
   config: ../config/xp/inference-glo12-sla.yaml
 
-  input_data: data/global_sla_0.25.nc
+  input_data: /Odyssey/public/data_challenge_ssh_ose/data/alongtrack/gridded_obs_sla_0.125.nc
   input_var: sla_filtered
   output_var: sla
   geo_uv: false
 
 dims:
-  patch: 15-648-1488
-  stride: 1-200-200
-  res: .25
+  # patch: 15-648-1488
+  # stride: 1-200-200
+  # res: .25
+  
+  # 1/8° global ---------------------------------------------------------------
+  patch: 15-656-608
+  stride: 1-640-592
+  res: .125
