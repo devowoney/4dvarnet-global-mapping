@@ -2,9 +2,10 @@ schema: '2.0'
 stages:
   inference:
     cmd: "python inferring.py +input=/Odyssey/public/data_challenge_ssh_ose/data/alongtrack/gridded_obs_sla_0.125.nc
-      +checkpoint_path=/Odyssey/public/_transit_zone_/model_0.125deg/val_mse_4.07106_epo_264.ckpt
-      +config_path=/Odyssey/public/_transit_zone_/model_0.125deg/config.yaml +output_path=./data/mapping/modelDaniel.nc
-      +patch=15-656-608 +stride=1-640-592 +period_from=2018-12-01 +period_to=2020-01-31
-      +input_var=sla_filtered +output_var=sla +output_dc_format=true +mask_path=/Odyssey/public/data_challenge_ssh_ose/data/sad/land_water_mask_8.nc
+      +checkpoint_path=/Odyssey/private/j25lee/4dvarnet-global-mapping/outputs/2025-08-06/altivali_renoise-17-25-49/glorys12_0init_0125_2010to2019_altivalid/checkpoints/best.ckpt
+      +config_path=/Odyssey/private/j25lee/4dvarnet-global-mapping/outputs/2025-08-06/altivali_renoise-17-25-49/.hydra/config.yaml
+      +output_path=./data/mapping/alti_renoise.nc +patch=15-656-608 +stride=1-640-592
+      +period_from=2018-12-01 +period_to=2020-01-31 +input_var=sla_filtered +output_var=sla
+      +output_dc_format=true +mask_path=/Odyssey/public/data_challenge_ssh_ose/data/sad/land_water_mask_8.nc
       +batch_size=1 hydra.run.dir=. hydra.output_subdir=null hydra/job_logging=disabled
       hydra/hydra_logging=disabled\n"

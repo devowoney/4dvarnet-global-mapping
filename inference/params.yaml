@@ -2,12 +2,10 @@ method:
   # -------------------------------------------------------------------
   # SLA
   # -------------------------------------------------------------------
-  name: 2010to2019_altivalid
-  # name: on2014altivali 
-  # name: 2010to2019
-  checkpoint: /Odyssey/private/j25lee/4dvarnet-global-mapping/outputs/2025-07-23/glorys12_0init_0125_2010to2019_altivalid-21-01-54/glorys12_0init_0125_2010to2019_altivalid/checkpoints/best.ckpt
-  # checkpoint: /Odyssey/private/j25lee/4dvarnet-global-mapping/outputs/2025-07-23/glorys12_0init_0125_only2014_altivali-11-17-16/glorys12_0init_0125_only2014_altivali/checkpoints/best.ckpt
-  # checkpoint: /Odyssey/private/j25lee/4dvarnet-global-mapping/outputs/2025-07-22/glorys12_0init_0125_2010to2019-23-46-56/glorys12_0init_0125_2010to2019/checkpoints/best.ckpt
+  # name: 2010to2019_altivalid
+  name: 2010to2019
+  # checkpoint: /Odyssey/private/j25lee/4dvarnet-global-mapping/outputs/2025-07-23/glorys12_0init_0125_2010to2019_altivalid-21-01-54/glorys12_0init_0125_2010to2019_altivalid/checkpoints/best.ckpt
+  checkpoint: /Odyssey/private/j25lee/4dvarnet-global-mapping/outputs/2025-07-30/glorys12_0init_0125_2010to2019-10-47-44/glorys12_0init_0125_2010to2019/checkpoints/best.ckpt
 
   config: ../config/xp/inference-glo12-sla.yaml
 
