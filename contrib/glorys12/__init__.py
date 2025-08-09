@@ -1,7 +1,6 @@
 """
 Learning GLORYS12 data
 """
-
 import functools as ft
 import time
 
@@ -11,12 +10,11 @@ import kornia.filters as kfilts
 import xarray as xr
 
 from ocean4dvarnet.data import BaseDataModule, TrainingItem
-from ocean4dvarnet.models import Lit4dVarNet
+from ocean4dvarnet.models import Lit4dVarNet, GradSolver
 
 
 # Exceptions
 # ----------
-
 
 class NormParamsNotProvided(Exception):
     """Normalisation parameters have not been provided"""
@@ -25,8 +23,106 @@ class NormParamsNotProvided(Exception):
 # Data
 # ----
 
+def generate_correlated_fields_np(N, M, L, T_corr, sigma, num_fields=10):
+    """
+    Generate a series of 2D fields with both spatial and temporal correlations.
+    Parameters:
+        N (int): Grid size (assumed to be square, NxN).
+        L (float): Spatial correlation length.
+        T_corr (float): Temporal correlation length.
+        sigma (float): Standard deviation of the field.
+        num_fields (int): Number of fields to generate (default is 10).
+        device (str): Device to run the computations on ('cpu' or 'cuda').
+    Returns:
+        torch.Tensor: Generated fields of shape (num_fields, N, N).
+    """
+    # Define the time points for the fields
+    time_points = np.linspace(0, num_fields - 1, num_fields)
+
+    # Compute the temporal covariance matrix
+    C_temporal = np.exp(-abs(time_points[:, None] - time_points[None, :]) / T_corr)
+
+    # Perform Cholesky decomposition to get the temporal correlation factors
+    L_chol = np.linalg.cholesky(C_temporal)
+
+    # Generate independent Gaussian white noise for each time point
+    white_noises = np.random.randn(num_fields, N, M )
+
+    # Combine white noise using the Cholesky factors to induce temporal correlation
+    temporal_correlated_noises = np.matmul(L_chol, white_noises.reshape(num_fields, -1)).reshape(num_fields, N, M)
+
+    # Generate 2D grid of wavenumbers for spatial correlation
+    kx = np.fft.fftfreq(N) * N
+    ky = np.fft.fftfreq(M) * M
+    k = np.sqrt(kx[:, None]**2 + ky[None, :]**2)
+    cutoff_mask = (k < 20)  # High-frequency cutoff
+    # apply - if we apply the same approach to vorticity, and then obtain 
+    # stream function, 
+    # Spatial covariance (Power spectrum) for Gaussian covariance
+    P_k = np.exp(-0.5 * (k * L)**3)
+    P_k[0, 0] = 0.0
+    P_k = P_k / np.sum(P_k)
+
+    # Generate fields using Fourier transform
+    fields = []
+    for i in range(num_fields):
+        noise_ft = np.fft.fft2(temporal_correlated_noises[i])
+
+        field_ft = noise_ft * sigma**2 * np.sqrt(P_k) * cutoff_mask
+        field = np.fft.ifft2(field_ft).real
+        fields.append(field)
+    return np.stack(fields)
+
+def warp_field_np(field, dx, dy):
+    """
+    Warp a 2D field based on displacement fields dx and dy.
+    field (torch.Tensor): Input field of shape (batch_size, channels, height, width)
+    dx (torch.Tensor): X-displacement field of shape (batch_size, height, width)
+    dy (torch.Tensor): Y-displacement field of shape (batch_size, height, width)
+    """
+    height, width = field.shape
+
+    # Create base grid
+    xref = np.arange(width) 
+    yref = np.arange(height)
+
+    yg, xg  = np.meshgrid(yref, xref, indexing='ij')
+    #base_grid = np.stack((x, y), dim=-1).float()
+
+    # Add batch dimension and move to the same device as input field
+    #base_grid = base_grid.unsqueeze(0).repeat(batch_size,1,1,1).to(field.device)
+
+    # Apply displacements
+    x = ( xg + dx )
+    y = ( yg + dy )
+
+    x [ x < 0. ] = 0.
+    y [ y < 0. ] = 0.
+
+    x [ x > width-1 ]  = width - 1.
+    y [ y > height-1 ] = height - 1.
+
+
+     # Normalize grid to [-1, 1] range
+    #sample_grid[..., 0] = 2 * sample_grid[..., 0] / (width) - 1
+    #sample_grid[..., 1] = 2 * sample_grid[..., 1] / (height) - 1
+
+    # Perform sampling
+    #warped_field = F.grid_sample(field, sample_grid, mode='bilinear', padding_mode='reflection', align_corners=False)
+    interp = RegularGridInterpolator((yref, xref), field , method="cubic")
+    warped_field = interp( (y , x ) )
+    #warped_field = warped_field.reshape( x.shape )
+    return warped_field
 
 class DistinctNormDataModule(BaseDataModule):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.input_mask = None
+        if isinstance(self.input_da, (tuple, list)):
+            self.input_da, self.input_mask = self.input_da[0], self.input_da[1]
+            # self.input_da, self.input_mask, self.val_data = self.input_da
+
     def norm_stats(self):
         if self._norm_stats is None:
             raise NormParamsNotProvided()
@@ -34,49 +130,44 @@ class DistinctNormDataModule(BaseDataModule):
 
     def post_fn(self, phase):
         m, s = self.norm_stats()[phase]
+        normalize = lambda item: (item - m) / s
+        return ft.partial(ft.reduce,lambda i, f: f(i), [
+            TrainingItem._make,
+            lambda item: item._replace(tgt=normalize(item.tgt)),
+            lambda item: item._replace(input=normalize(item.input)),
+        ])
 
-        def normalize(item):
-            return (item - m) / s
-
-        return ft.partial(
-            ft.reduce,
-            lambda i, f: f(i),
-            [
-                TrainingItem._make,
-                lambda item: item._replace(tgt=normalize(item.tgt)),
-                lambda item: item._replace(input=normalize(item.input)),
-            ],
-        )
-
-    def setup(self, stage="test"):
+    def setup(self, stage='test'):
         self.train_ds = LazyXrDataset(
-            self.input_da.sel(self.domains["train"]),
-            **self.xrds_kw["train"],
-            postpro_fn=self.post_fn("train"),
+            self.input_da.sel(self.domains['train']),
+            **self.xrds_kw['train'], postpro_fn=self.post_fn('train'),
+            mask=self.input_mask,
         )
+        
         self.val_ds = LazyXrDataset(
-            self.input_da.sel(self.domains["val"]),
-            **self.xrds_kw["val"],
-            postpro_fn=self.post_fn("val"),
+            self.input_da.sel(self.domains['val']),
+            **self.xrds_kw['val'], postpro_fn=self.post_fn('val'),
+            mask=self.input_mask,
         )
-
-    def val_dataloader(self):
-        return torch.utils.data.DataLoader(
-            self.val_ds,
-            shuffle=False,
-            batch_size=1,
-            num_workers=1,
-        )
+        
+        # if self.val_data is not None:
+        #     self.val_ds = LazyXrDataset(
+        #         self.val_data.sel(self.domains['val']),
+        #         **self.xrds_kw['val'],
+        #         postpro_fn=self.post_fn('val'),
+        #     )
+        # else:
+        #     self.val_ds = LazyXrDataset(
+        #         self.input_da.sel(self.domains['val']),
+        #         **self.xrds_kw['val'], postpro_fn=self.post_fn('val'),
+        #         mask=self.input_mask,
+        #     )
 
 
 class LazyXrDataset(torch.utils.data.Dataset):
     def __init__(
-        self,
-        ds,
-        patch_dims,
-        domain_limits=None,
-        strides=None,
-        postpro_fn=None,
+        self, ds, patch_dims, domain_limits=None, strides=None, postpro_fn=None,
+        noise_type=None, noise=None, noise_spatial_perturb=None, *args, **kwargs,
     ):
         super().__init__()
         self.return_coords = False
@@ -84,10 +175,9 @@ class LazyXrDataset(torch.utils.data.Dataset):
         self.ds = ds.sel(**(domain_limits or {}))
         self.patch_dims = patch_dims
         self.strides = strides or {}
-        _dims = ("variable",) + tuple(k for k in ds.dims)
-        _shape = (2,) + tuple(ds[k].shape[0] for k in ds.dims)
+        _dims = ('variable',) + tuple(k for k in self.ds.dims)
+        _shape = (2,) + tuple(self.ds[k].shape[0] for k in self.ds.dims)
         ds_dims = dict(zip(_dims, _shape))
-        # ds_dims = dict(zip(ds.dims, ds.shape))
         self.ds_size = {
             dim: max(
                 (ds_dims[dim] - patch_dims[dim]) // strides.get(dim, 1) + 1,
@@ -95,6 +185,15 @@ class LazyXrDataset(torch.utils.data.Dataset):
             )
             for dim in patch_dims
         }
+        self._rng = np.random.default_rng()
+        self.noise = noise
+        self.noise_spatial_perturb = noise_spatial_perturb
+        self.mask = kwargs.get('mask')
+
+        if noise_type is not None:
+            self.noise_type = noise_type
+        else:
+            self.noise_type = 'uniform-constant'     
 
     def __len__(self):
         size = 1
@@ -119,7 +218,10 @@ class LazyXrDataset(torch.utils.data.Dataset):
     def __getitem__(self, item):
         sl = {}
         _zip = zip(
-            self.ds_size.keys(), np.unravel_index(item, tuple(self.ds_size.values()))
+            self.ds_size.keys(),
+            np.unravel_index(
+                item, tuple(self.ds_size.values())
+            )
         )
 
         for dim, idx in _zip:
@@ -128,16 +230,90 @@ class LazyXrDataset(torch.utils.data.Dataset):
                 self.strides.get(dim, 1) * idx + self.patch_dims[dim],
             )
 
-        item = (
-            self.ds.isel(**sl)
-            # .to_array()
-            # .sortby('variable')
-        )
+        if self.mask is not None:
+            start, stop = sl['time'].start % 365, sl['time'].stop % 365
+            if start > stop:
+                start -= stop
+                stop = None
+            sl_mask = sl.copy()
+            sl_mask['time'] = slice(start, stop)
+
+            da = self.ds.isel(**sl)
+
+            item = (
+                da
+                .to_dataset(name='tgt')
+                .assign(input=da.where(self.mask.isel(**sl_mask).values))
+                .to_array()
+                .sortby('variable')
+            )
+        else:
+            item = (
+                self.ds
+                .isel(**sl)
+                # .to_array()
+                # .sortby('variable')
+            )
 
         if self.return_coords:
             return item.coords.to_dataset()[list(self.patch_dims)]
 
         item = item.data.astype(np.float32)
+
+        if self.noise is not None:
+            # noise = np.tile(
+            #     self._rng.uniform(-self.noise, self.noise, item[0].shape),
+            #     (2, 1, 1, 1)
+            # ).astype(np.float32)
+            # item = item + noise
+            
+            
+            if self.noise_type ==  'uniform-constant' :
+                noise =  self._rng.uniform(-self.noise, self.noise, item[0].shape).astype(np.float32)
+
+                item[0] = item[0] + noise
+            elif self.noise_type ==  'gaussian+uniform' :
+                scale = self._rng.uniform(0. , self.noise, 1).astype(np.float32)
+                noise =  self._rng.normal(0., 1. , item[0].shape).astype(np.float32)
+
+                item[0] = item[0] + scale * noise
+            elif self.noise_type ==  'spatial-perturb' :
+                # patch dimensions
+                N = item[0].shape[1]
+                M = item[0].shape[2]
+                T = item[0].shape[0]
+
+                # parameters of the Gaussian Process
+                L = 5.0  # Spatial correlation length
+                T_corr = 20.0  # Temporal correlation length
+                sigma  = self._rng.uniform(0. , self.noise_spatial_perturb, 1).astype(np.float32)
+
+                # generate space-time random perturbations
+                w  = np.matmul( np.hanning( N ).reshape(N,1) , np.hanning( M ).reshape(1,M) )
+                dx = w * generate_correlated_fields_np(N, M, L, T_corr, sigma,T)
+                dy = w * generate_correlated_fields_np(N, M, L, T_corr, sigma,T)
+
+                # compute warped fields from reference field and associated error map
+                warped_field = np.zeros_like(item[1])
+
+                # Perform warping
+                for ii in range(T):
+                    warped_field[ii,:,:] = warp_field_np(item[1][ii,:,:], dx[ii,:,:], dy[ii,:,:])
+
+                # residual error
+                error = item[1][ii,:,:] - warped_field
+
+                # apply mask
+                noise = np.where( np.isnan(item[0]) , np.nan, error )
+                print("..... std of the simulated noise : %.3f"%np.nanstd(noise) )
+
+                # adding a white noise
+                scale  = self._rng.uniform(0. , self.noise, 1).astype(np.float32)
+                wnoise = scale * self._rng.normal(0., 1. , item[0].shape).astype(np.float32)
+
+                item[0] = item[0] + noise + wnoise
+
+
         if self.postpro_fn is not None:
             return self.postpro_fn(item)
         return item
@@ -146,17 +322,20 @@ class LazyXrDataset(torch.utils.data.Dataset):
 # Model
 # -----
 
-
 class Lit4dVarNetIgnoreNaN(Lit4dVarNet):
     def __init__(self, *args, **kwargs):
         _val_rec_weight = kwargs.pop(
-            "val_rec_weight",
-            kwargs["rec_weight"],
+            'val_rec_weight', kwargs['rec_weight'],
+        )
+        self.train_weights = (
+            kwargs.pop('train_weight', 50),
+            kwargs.pop('train_weight_grad', 1000),
+            kwargs.pop('train_weight_prior', 1.),
         )
         super().__init__(*args, **kwargs)
 
         self.register_buffer(
-            "val_rec_weight",
+            'val_rec_weight',
             torch.from_numpy(_val_rec_weight),
             persistent=False,
         )
@@ -165,7 +344,7 @@ class Lit4dVarNetIgnoreNaN(Lit4dVarNet):
 
     def get_rec_weight(self, phase):
         rec_weight = self.rec_weight
-        if phase == "val":
+        if phase == 'val':
             rec_weight = self.val_rec_weight
         return rec_weight
 
@@ -177,9 +356,7 @@ class Lit4dVarNetIgnoreNaN(Lit4dVarNet):
 
     def on_train_epoch_end(self):
         self.log(
-            "n_rejected_batches",
-            self._n_rejected_batches,
-            on_step=False,
+            'n_rejected_batches', self._n_rejected_batches, on_step=False,
             on_epoch=True,
         )
 
@@ -195,14 +372,15 @@ class Lit4dVarNetIgnoreNaN(Lit4dVarNet):
 
         prior_cost = self.solver.prior_cost(self.solver.init_state(batch, out))
         self.log(
-            f"{phase}_gloss",
-            grad_loss,
-            prog_bar=False,
-            on_step=False,
+            f'{phase}_gloss', grad_loss, prog_bar=False, on_step=False,
             on_epoch=True,  # sync_dist=True,
         )
 
-        training_loss = 50 * loss + 1000 * grad_loss + 1.0 * prior_cost
+        training_loss = (
+            self.train_weights[0] * loss
+            + self.train_weights[1] * grad_loss
+            + self.train_weights[2] * prior_cost
+        )
         return training_loss, out
 
     def base_step(self, batch, phase):
@@ -211,61 +389,78 @@ class Lit4dVarNetIgnoreNaN(Lit4dVarNet):
 
         with torch.no_grad():
             self.log(
-                f"{phase}_mse",
-                10000 * loss * self.norm_stats[phase][1] ** 2,
-                prog_bar=True,
-                on_step=False,
-                on_epoch=True,  # sync_dist=True,
+                f'{phase}_mse', 10000 * loss * self.norm_stats[phase][1]**2,
+                prog_bar=True, on_step=False, on_epoch=True,  # sync_dist=True,
             )
             self.log(
-                f"{phase}_loss",
-                loss,
-                prog_bar=False,
-                on_step=False,
+                f'{phase}_loss', loss, prog_bar=False, on_step=False,
                 on_epoch=True,  # sync_dist=True,
             )
 
-            if phase == "val":
-                # Log the loss in Gulfstream
-                loss_gf = self.weighted_mse(
-                    out[:, :, 445:485, 420:460].detach().cpu().data
-                    - batch.tgt[:, :, 445:485, 420:460].detach().cpu().data,
-                    np.ones_like(out[:, :, 445:485, 420:460].detach().cpu().data),
-                )
-                self.log(
-                    f"{phase}_loss_gulfstream",
-                    loss_gf,
-                    on_step=False,
-                    on_epoch=True,
-                )
-
         return loss, out
+
+# class GradSolverZeroInitialCondition(GradSolver) :
+#     def init_state(self, batch, x_init=None):
+#         if x_init is not None:
+#             return x_init
+
+#         return torch.zeros_like(batch.input.nan_to_num()).detach().requires_grad_(True)
 
 
 # Utils
 # -----
 
-
-def load_glorys12_data(tgt_path, inp_path, tgt_var="zos", inp_var="input"):
-    isel = None  # dict(time=slice(-465, -265))
+def load_glorys12_data(tgt_path, inp_path, tgt_var='zos', inp_var='input'):
+    isel = None  # dict(time=slice(-365 * 2, None))
 
     _start = time.time()
 
-    tgt = xr.open_dataset(tgt_path)[tgt_var].isel(isel)
+    tgt = (
+        xr.open_dataset(tgt_path)[tgt_var]
+        .isel(isel)
+    )
     inp = xr.open_dataset(inp_path)[inp_var].isel(isel)
 
     ds = (
         xr.Dataset(
-            dict(input=inp, tgt=(tgt.dims, tgt.values)),
-            inp.coords,
+            dict(input=inp, tgt=(tgt.dims, tgt.values)), inp.coords,
         )
         .to_array()
-        .sortby("variable")
+        .sortby('variable')
     )
 
-    print(f">>> Durée de chargement : {time.time() - _start:.4f} s")
+    print(f'>>> Durée de chargement : {time.time() - _start:.4f} s')
     return ds
 
+def load_glorys12_data_on_fly_inp(
+    tgt_path, inp_path, tgt_var='zos', inp_var='input',
+    # tgt_path, inp_path, tgt_var='zos', inp_var='input', val_path=None,
+):
+    isel = None  # dict(time=slice(-365 * 2, None))
+
+    tgt = (
+        xr.open_dataset(tgt_path)[tgt_var]
+        .isel(isel)
+        .rename(latitude='lat', longitude='lon')
+    )
+    inp = (
+        xr.open_dataset(inp_path)[inp_var]
+        .isel(isel)
+        .rename(latitude='lat', longitude='lon')
+    )
+    return tgt, inp
+    # val = None
+    # if val_path:
+    #     val = (
+    #         xr.open_dataset(val_path)
+    #         .rename(
+    #             obs='input', ref='tgt', latitude='lat', longitude='lon',
+    #         )
+    #         .to_array()
+    #         .sortby('variable')
+    #     )
+
+    # return tgt, inp, val
 
 def train(trainer, dm, lit_mod, ckpt=None):
     if trainer.logger is not None:
@@ -275,4 +470,4 @@ def train(trainer, dm, lit_mod, ckpt=None):
 
     start = time.time()
     trainer.fit(lit_mod, datamodule=dm, ckpt_path=ckpt)
-    print(f"Durée d'apprentissage : {time.time() - start:.3} s")
+    print(f'Durée d\'apprentissage : {time.time() - start:.3} s')
